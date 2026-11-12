@@ -1,0 +1,160 @@
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+# LinSpectacles SELinux Inspector - privileged read-only collector
+# Copyright (C) 2026 brunonlinespace
+# GPL-3.0-or-later
+
+"""Root-side collector for optional SELinux Inspector privileged mode.
+
+There is deliberately no arbitrary command execution and no arbitrary file-read
+operation.  Every request maps to one fixed read-only SELinux query.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+
+MAX_OUTPUT = 8 * 1024 * 1024
+HELPER_ID = "linspectacles-selinux-inspector"
+HELPER_VERSION = "0.0.5"
+HELPER_PROTOCOL = 1
+
+COMMANDS = {
+    "denials": (
+        ("/usr/sbin/ausearch", "/sbin/ausearch", "/usr/bin/ausearch"),
+        ("-m", "AVC,USER_AVC", "-ts", "recent"),
+        90,
+    ),
+    "policy_modules_full": (
+        ("/usr/sbin/semodule", "/sbin/semodule", "/usr/bin/semodule"),
+        ("--list-modules=full",),
+        45,
+    ),
+    "policy_modules_standard": (
+        ("/usr/sbin/semodule", "/sbin/semodule", "/usr/bin/semodule"),
+        ("--list-modules=standard",),
+        30,
+    ),
+    "policy_modules_legacy": (
+        ("/usr/sbin/semodule", "/sbin/semodule", "/usr/bin/semodule"),
+        ("-l",),
+        30,
+    ),
+    "permissive_domains": (
+        ("/usr/sbin/semanage", "/sbin/semanage", "/usr/bin/semanage"),
+        ("permissive", "-l"),
+        30,
+    ),
+    "users": (
+        ("/usr/sbin/semanage", "/sbin/semanage", "/usr/bin/semanage"),
+        ("user", "-l"),
+        30,
+    ),
+    "logins": (
+        ("/usr/sbin/semanage", "/sbin/semanage", "/usr/bin/semanage"),
+        ("login", "-l"),
+        30,
+    ),
+    "ports": (
+        ("/usr/sbin/semanage", "/sbin/semanage", "/usr/bin/semanage"),
+        ("port", "-l"),
+        45,
+    ),
+    "fcontexts": (
+        ("/usr/sbin/semanage", "/sbin/semanage", "/usr/bin/semanage"),
+        ("fcontext", "-l"),
+        60,
+    ),
+}
+
+
+def reply(payload):
+    sys.stdout.write(json.dumps(payload, separators=(",", ":"), ensure_ascii=False) + "\n")
+    sys.stdout.flush()
+
+
+def command_path(candidates):
+    for path in candidates:
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
+    return None
+
+
+def run_fixed(op):
+    spec = COMMANDS.get(op)
+    if spec is None:
+        raise ValueError("Unsupported operation")
+    candidates, argv, timeout = spec
+    executable = command_path(candidates)
+    if executable is None:
+        return {"ok": False, "error": f"Required command for {op} is not installed."}
+    try:
+        result = subprocess.run(
+            [executable, *argv],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout,
+            env={"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C.UTF-8"},
+        )
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": f"Privileged {op} query timed out."}
+    except OSError as exc:
+        return {"ok": False, "error": str(exc)}
+    stdout = (result.stdout or "")[:MAX_OUTPUT]
+    stderr = (result.stderr or "")[:MAX_OUTPUT]
+    return {
+        "ok": True,
+        "returncode": int(result.returncode),
+        "stdout": stdout,
+        "stderr": stderr,
+        "truncated": len(result.stdout or "") > MAX_OUTPUT or len(result.stderr or "") > MAX_OUTPUT,
+    }
+
+
+def dispatch(req):
+    op = req.get("op")
+    if op == "ping":
+        return {"ok": True, "root": os.geteuid() == 0}
+    if op == "quit":
+        return {"ok": True, "quit": True}
+    return run_fixed(str(op or ""))
+
+
+def stdio_server():
+    if os.geteuid() != 0:
+        reply({"status": "error", "error": "helper must run as root"})
+        return 1
+    reply({"status": "ready", "protocol": HELPER_PROTOCOL, "helper_id": HELPER_ID, "helper_version": HELPER_VERSION})
+    for line in sys.stdin:
+        if len(line) > 65536:
+            reply({"ok": False, "error": "request too large"})
+            continue
+        try:
+            req = json.loads(line)
+            if not isinstance(req, dict):
+                raise ValueError("request must be an object")
+            out = dispatch(req)
+        except Exception as exc:
+            out = {"ok": False, "error": str(exc)}
+        reply(out)
+        if out.get("quit"):
+            break
+    return 0
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--stdio", action="store_true")
+    args = parser.parse_args(argv)
+    if not args.stdio:
+        return 2
+    return stdio_server()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

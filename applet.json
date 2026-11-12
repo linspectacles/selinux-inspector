@@ -1,0 +1,106 @@
+{
+  "schema": 1,
+  "id": "linspectacles-selinux-inspector",
+  "name": "SELinux Inspector",
+  "version": "0.0.10",
+  "author": "brunonlinespace",
+  "editor": "brunonlinespace",
+  "publisher": "brunonlinespace",
+  "organization_id": "linspectacles",
+  "organization_url": "https://github.com/linspectacles/",
+  "repository": "https://github.com/linspectacles/selinux-inspector",
+  "order": 60,
+  "entrypoint": "selinux_inspector/applet.py",
+  "factory": "create_applet",
+  "standalone": "standalone.py",
+  "description": "Read-only SELinux inspector with a Status dialog containing status and file-context checking, ordinary policy/context views, multi-view export, standard Options, and optional ephemeral privileged inspection through a narrow root-owned helper.",
+  "platforms": [
+    "linux"
+  ],
+  "read_only": true,
+  "privileged_helper": {
+    "schema": 1,
+    "id": "linspectacles-selinux-inspector",
+    "name": "SELinux Inspector Privileged Helper",
+    "version": "0.0.5",
+    "protocol": 1,
+    "publisher": "brunonlinespace",
+    "payload": "selinux_inspector/privileged/linspectacles-selinux-helper",
+    "install_path": "/usr/libexec/linspectacles-selinux-helper",
+    "sha256": "8d0c1492442d7781ccce6ab01b01181edf592525e4a9a60b914442ed15e651d6",
+    "session_model": "window_ephemeral",
+    "read_only": true,
+    "capabilities": [
+      {
+        "id": "selinux_mode",
+        "label": "Current SELinux mode",
+        "standard": "Available through ordinary SELinux interfaces when present.",
+        "elevated": "Same information; privilege does not add access.",
+        "kind": "common"
+      },
+      {
+        "id": "process_context",
+        "label": "Current process context",
+        "standard": "Available through id -Z when supported.",
+        "elevated": "Same information; privilege does not add access.",
+        "kind": "common"
+      },
+      {
+        "id": "selinux_filesystem",
+        "label": "SELinux filesystem",
+        "standard": "Directly observable at /sys/fs/selinux.",
+        "elevated": "Same information; privilege does not add access.",
+        "kind": "common"
+      },
+      {
+        "id": "recent_denials",
+        "label": "Recent AVC audit denials",
+        "standard": "Permission dependent; audit records may be restricted.",
+        "elevated": "Fixed read-only ausearch query can inspect restricted audit records when present.",
+        "kind": "expanded"
+      },
+      {
+        "id": "policy_modules",
+        "label": "Policy modules",
+        "standard": "Uses semodule with the current user's access.",
+        "elevated": "Runs the same fixed read-only module listing through the helper when ordinary access is restricted.",
+        "kind": "expanded"
+      },
+      {
+        "id": "permissive_domains",
+        "label": "Permissive domains",
+        "standard": "Uses semanage permissive -l with the current user's access.",
+        "elevated": "Runs the same fixed read-only listing through the helper when ordinary access is restricted.",
+        "kind": "expanded"
+      },
+      {
+        "id": "selinux_users",
+        "label": "SELinux users",
+        "standard": "Uses semanage user -l with the current user's access.",
+        "elevated": "Runs the same fixed read-only listing through the helper when ordinary access is restricted.",
+        "kind": "expanded"
+      },
+      {
+        "id": "login_mappings",
+        "label": "Login mappings",
+        "standard": "Uses semanage login -l with the current user's access.",
+        "elevated": "Runs the same fixed read-only listing through the helper when ordinary access is restricted.",
+        "kind": "expanded"
+      },
+      {
+        "id": "port_contexts",
+        "label": "Port contexts",
+        "standard": "Uses semanage port -l with the current user's access.",
+        "elevated": "Runs the same fixed read-only listing through the helper when ordinary access is restricted.",
+        "kind": "expanded"
+      },
+      {
+        "id": "file_context_rules",
+        "label": "File-context rules",
+        "standard": "Uses semanage fcontext -l with the current user's access.",
+        "elevated": "Runs the same fixed read-only listing through the helper when ordinary access is restricted.",
+        "kind": "expanded"
+      }
+    ]
+  }
+}
