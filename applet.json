@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "linspectacles-selinux-inspector",
   "name": "SELinux Inspector",
-  "version": "0.0.10",
+  "version": "0.0.11",
   "author": "brunonlinespace",
   "editor": "brunonlinespace",
   "publisher": "brunonlinespace",
@@ -13,7 +13,7 @@
   "entrypoint": "selinux_inspector/applet.py",
   "factory": "create_applet",
   "standalone": "standalone.py",
-  "description": "Read-only SELinux inspector with a Status dialog containing status and file-context checking, ordinary policy/context views, multi-view export, standard Options, and optional ephemeral privileged inspection through a narrow root-owned helper.",
+  "description": "Read-only SELinux inspector with a Status dialog showing SELinux status, ordinary policy/context views, multi-view export, standard Options, and optional ephemeral privileged inspection through a narrow root-owned helper.",
   "platforms": [
     "linux"
   ],

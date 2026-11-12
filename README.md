@@ -12,9 +12,9 @@
 
 **Expose. Explore. Explain.**
 
-SELinux Inspector is a read-only SELinux inspector with status/context views, policy inventories, recent-denial scanning, file-context checking and optional ephemeral privileged inspection through a narrow helper.
+SELinux Inspector is a read-only SELinux inspector with status/context views, policy inventories, recent-denial scanning and optional ephemeral privileged inspection through a narrow helper.
 
-Current release: **0.0.10**
+Current release: **0.0.11**
 
 Repository: <https://github.com/linspectacles/selinux-inspector>
 
@@ -26,10 +26,9 @@ It keeps acquisition and interpretation close to the Linux interfaces actually u
 
 ## Highlights
 
-- **Status...** dialog with SELinux status plus a separate **File Context Check**.
+- **Status...** dialog with SELinux status.
 - Views for **Booleans**, **Process Contexts**, **Recent Denials**, **Policy Modules**, **Permissive Domains**, **Users & Logins**, **Port Contexts** and **File Context Rules**.
 - Recent Denials remains explicit scan-only rather than being collected automatically.
-- File Context Check compares the selected path's actual context with the policy-expected context using native SELinux tools.
 - Separate **Privileged Inspection...** window; the normal applet pages never switch themselves to elevated collection.
 - Fixed helper can perform only declared read-only inspection operations after explicit authorization.
 - **Comparison Report...** records actual paired ordinary/helper query results that were acquired, rather than theoretical capability claims.
@@ -40,7 +39,6 @@ It keeps acquisition and interpretation close to the Linux interfaces actually u
 - `getsebool -a` and optional `semanage boolean -l`.
 - `ps -e -o label= -o pid= -o user= -o comm=`.
 - `ausearch -m AVC,USER_AVC -ts recent -i` for Recent Denials.
-- `ls -Zd -- <path>` and `matchpathcon -n <path>` for File Context Check.
 - `semodule` and `semanage` read-only listing commands for policy modules, permissive domains, users/logins, ports and file-context rules.
 
 The applet uses those sources according to the acquisition paths implemented in this release. Optional tools or privileged helpers only affect the views/actions that explicitly use them; they are not treated as silent substitutes for unrelated sources.

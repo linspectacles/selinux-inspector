@@ -4,7 +4,6 @@
 # Copyright (C) 2026 brunonlinespace
 # GPL-3.0-or-later
 
-import os
 import re
 import shutil
 import subprocess
@@ -14,10 +13,8 @@ from pathlib import Path
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QApplication,
-    QFileDialog,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QMessageBox,
     QPushButton,
     QTabWidget,
@@ -704,179 +701,3 @@ class SELinuxDenialsPage(BaseInspectorTab):
         self.append_info("\n--- Raw Audit Event ---\n")
         self.append_info(record.get("_raw", "") + "\n")
         self.set_status("Inspecting selected SELinux denial event.")
-
-
-class SELinuxFileContextPage(MetadataTextPage):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.records = []
-        self.setup_ui()
-
-    def setup_ui(self):
-        root = QVBoxLayout(self)
-        root.setContentsMargins(12, 12, 12, 12)
-        root.setSpacing(10)
-
-        top = QHBoxLayout()
-        title = QLabel("File Context Check")
-        font = title.font()
-        font.setBold(True)
-        font.setPointSize(max(font.pointSize(), 11))
-        title.setFont(font)
-        top.addWidget(title)
-        top.addStretch(1)
-
-        self.export_btn = QPushButton("Export...")
-        self.export_btn.setEnabled(False)
-        self.export_btn.clicked.connect(self.export_result)
-        top.addWidget(self.export_btn)
-        root.addLayout(top)
-
-        note = QLabel(
-            "Compare a file or directory's current SELinux context with the context expected by the active policy. "
-            "This check is read-only; LinSpectacles never runs chcon or restorecon."
-        )
-        note.setWordWrap(True)
-        root.addWidget(note)
-
-        chooser = QHBoxLayout()
-        self.path_entry = QLineEdit()
-        self.path_entry.setPlaceholderText("Choose a file or directory to inspect...")
-        self.path_entry.returnPressed.connect(self.check_path)
-        chooser.addWidget(self.path_entry, 1)
-
-        file_btn = QPushButton("Choose File...")
-        file_btn.clicked.connect(self.choose_file)
-        chooser.addWidget(file_btn)
-
-        folder_btn = QPushButton("Choose Folder...")
-        folder_btn.clicked.connect(self.choose_folder)
-        chooser.addWidget(folder_btn)
-
-        check_btn = QPushButton("Check")
-        check_btn.clicked.connect(self.check_path)
-        chooser.addWidget(check_btn)
-        root.addLayout(chooser)
-
-        self.info_text = self._make_text()
-        self._apply_text_style(self.info_text)
-        self.info_text.setPlainText("No path has been checked yet.")
-        root.addWidget(self.info_text, 1)
-
-        self.status_lbl = QLabel("Ready - choose a file or directory to compare SELinux contexts.")
-        status_font = self.status_lbl.font()
-        status_font.setItalic(True)
-        self.status_lbl.setFont(status_font)
-        self.status_lbl.setStyleSheet(
-            "QLabel { background: #252526; color: #b5cea8; padding: 4px; }"
-        )
-        root.addWidget(self.status_lbl)
-
-    def choose_file(self):
-        path, _selected = QFileDialog.getOpenFileName(self, "Choose File for SELinux Context Check")
-        if path:
-            self.path_entry.setText(path)
-            self.check_path()
-
-    def choose_folder(self):
-        path = QFileDialog.getExistingDirectory(self, "Choose Directory for SELinux Context Check")
-        if path:
-            self.path_entry.setText(path)
-            self.check_path()
-
-    @staticmethod
-    def _actual_context(path):
-        ls_cmd = shutil.which("ls")
-        if not ls_cmd:
-            return "Unavailable", "ls command is not available."
-        try:
-            result = _run([ls_cmd, "-Zd", "--", path], timeout=8)
-        except Exception as exc:
-            return "Unavailable", str(exc)
-        output = (result.stdout or result.stderr or "").strip()
-        if result.returncode != 0 or not output:
-            return "Unavailable", output or "Could not read current file context."
-        context = output.split(None, 1)[0]
-        return context, ""
-
-    @staticmethod
-    def _expected_context(path):
-        matchpathcon = shutil.which("matchpathcon")
-        if not matchpathcon:
-            return "Unavailable", "matchpathcon is not installed."
-        try:
-            result = _run([matchpathcon, "-n", path], timeout=8)
-        except Exception as exc:
-            return "Unavailable", str(exc)
-        output = (result.stdout or result.stderr or "").strip()
-        if result.returncode != 0 or not output:
-            return "Unavailable", output or "No expected policy context was returned."
-        return output.splitlines()[0].strip(), ""
-
-    def check_path(self):
-        raw = self.path_entry.text().strip()
-        if not raw:
-            QMessageBox.information(self, "File Context Check", "Choose or enter a file or directory first.")
-            return
-        path = os.path.abspath(os.path.expanduser(raw))
-        if not os.path.lexists(path):
-            QMessageBox.warning(self, "File Context Check", "The selected path does not exist.")
-            return
-        self.path_entry.setText(path)
-
-        actual, actual_error = self._actual_context(path)
-        expected, expected_error = self._expected_context(path)
-        if actual != "Unavailable" and expected != "Unavailable":
-            match = actual == expected
-            result_text = "Matches policy" if match else "Differs from policy expectation"
-        else:
-            match = None
-            result_text = "Comparison unavailable"
-
-        record = {
-            "path": path,
-            "actual_context": actual,
-            "expected_context": expected,
-            "result": result_text,
-        }
-        self.records = [record]
-
-        lines = [
-            f"Path: {path}",
-            f"Actual Context: {actual}",
-            f"Expected Context: {expected}",
-            f"Result: {result_text}",
-        ]
-        if actual_error:
-            lines.extend(["", f"Actual Context Note: {actual_error}"])
-        if expected_error:
-            lines.extend(["", f"Expected Context Note: {expected_error}"])
-        lines.extend(["", "Read-only inspection: no file labels were changed."])
-        self.info_text.setPlainText("\n".join(lines))
-        self.export_btn.setEnabled(True)
-        if match is True:
-            self.status_lbl.setText("The current file context matches the policy expectation.")
-        elif match is False:
-            self.status_lbl.setText("The current file context differs from the policy expectation.")
-        else:
-            self.status_lbl.setText("File context checked, but a complete comparison was unavailable.")
-
-    def export_result(self):
-        if not self.records:
-            QMessageBox.information(self, "Export", "No file-context check has been performed yet.")
-            return
-        path = export_records_dialog(
-            self,
-            "SELinux File Context Check",
-            self.records,
-            columns=[
-                ("path", "Path"),
-                ("actual_context", "Actual Context"),
-                ("expected_context", "Expected Context"),
-                ("result", "Result"),
-            ],
-        )
-        if path is not None:
-            self.status_lbl.setText(f"Exported file-context check to {path}")
-
-

@@ -7,7 +7,7 @@
 """Additional read-only SELinux policy views for SELinux Inspector.
 
 Kept in a separate module so the established Status/Booleans/Processes/
-Denials/File Context collectors can remain untouched.
+Denials collectors can remain untouched.
 """
 
 import os
@@ -649,8 +649,7 @@ class SELinuxFileContextRulesPage(LazySELinuxTablePage):
         self.append_key_value("Expected Context", record.get("context", ""))
         self.append_info("\nSource: semanage fcontext -l\n")
         self.append_info(
-            "This is a policy mapping rule, not the current label of any specific file. "
-            "Use File Context Check to compare an actual path with policy expectations.\n"
+            "This is a policy mapping rule, not the current label of any specific file.\n"
         )
         self.set_status("Inspecting selected SELinux file-context policy rule.")
 
@@ -673,10 +672,6 @@ Process Contexts
 Recent Denials
   ausearch -m AVC,USER_AVC -ts recent -i
   Optional privileged scan: fixed read-only helper after explicit user request.
-
-File Context Check
-  ls -Zd -- <path>
-  matchpathcon -n <path>
 
 Policy Modules
   semodule --list-modules=full

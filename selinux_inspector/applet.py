@@ -11,9 +11,8 @@ APPLET_EDITOR = "brunonlinespace"
 APPLET_ORGANIZATION_ID = "linspectacles"
 APPLET_ORGANIZATION_URL = "https://github.com/linspectacles/"
 APPLET_REPOSITORY = "https://github.com/linspectacles/selinux-inspector"
-APPLET_VERSION = "0.0.10"
+APPLET_VERSION = "0.0.11"
 
-import os
 import re
 import shutil
 import subprocess
@@ -28,10 +27,8 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
-    QFileDialog,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QMessageBox,
     QPushButton,
     QTabWidget,
@@ -652,321 +649,8 @@ class SELinuxDenialsPage(BaseInspectorTab):
         self.set_status("Inspecting selected SELinux denial event.")
 
 
-class SELinuxFileContextPage(MetadataTextPage):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.records = []
-        self.setup_ui()
-
-    def setup_ui(self):
-        root = QVBoxLayout(self)
-        root.setContentsMargins(12, 12, 12, 12)
-        root.setSpacing(10)
-
-        top = QHBoxLayout()
-        title = QLabel("File Context Check")
-        font = title.font()
-        font.setBold(True)
-        font.setPointSize(max(font.pointSize(), 11))
-        title.setFont(font)
-        top.addWidget(title)
-        top.addStretch(1)
-
-        self.export_btn = QPushButton("Export...")
-        self.export_btn.setEnabled(False)
-        self.export_btn.clicked.connect(self.export_result)
-        top.addWidget(self.export_btn)
-        root.addLayout(top)
-
-        note = QLabel(
-            "Compare a file or directory's current SELinux context with the context expected by the active policy. "
-            "This check is read-only; LinSpectacles never runs chcon or restorecon."
-        )
-        note.setWordWrap(True)
-        root.addWidget(note)
-
-        chooser = QHBoxLayout()
-        self.path_entry = QLineEdit()
-        self.path_entry.setPlaceholderText("Choose a file or directory to inspect...")
-        self.path_entry.returnPressed.connect(self.check_path)
-        chooser.addWidget(self.path_entry, 1)
-
-        file_btn = QPushButton("Choose File...")
-        file_btn.clicked.connect(self.choose_file)
-        chooser.addWidget(file_btn)
-
-        folder_btn = QPushButton("Choose Folder...")
-        folder_btn.clicked.connect(self.choose_folder)
-        chooser.addWidget(folder_btn)
-
-        check_btn = QPushButton("Check")
-        check_btn.clicked.connect(self.check_path)
-        chooser.addWidget(check_btn)
-        root.addLayout(chooser)
-
-        self.info_text = self._make_text()
-        self._apply_text_style(self.info_text)
-        self.info_text.setPlainText("No path has been checked yet.")
-        root.addWidget(self.info_text, 1)
-
-        self.status_lbl = QLabel("Ready - choose a file or directory to compare SELinux contexts.")
-        status_font = self.status_lbl.font()
-        status_font.setItalic(True)
-        self.status_lbl.setFont(status_font)
-        self.status_lbl.setStyleSheet(
-            "QLabel { background: #252526; color: #b5cea8; padding: 4px; }"
-        )
-        root.addWidget(self.status_lbl)
-
-    def choose_file(self):
-        path, _selected = QFileDialog.getOpenFileName(self, "Choose File for SELinux Context Check")
-        if path:
-            self.path_entry.setText(path)
-            self.check_path()
-
-    def choose_folder(self):
-        path = QFileDialog.getExistingDirectory(self, "Choose Directory for SELinux Context Check")
-        if path:
-            self.path_entry.setText(path)
-            self.check_path()
-
-    @staticmethod
-    def _actual_context(path):
-        ls_cmd = shutil.which("ls")
-        if not ls_cmd:
-            return "Unavailable", "ls command is not available."
-        try:
-            result = _run([ls_cmd, "-Zd", "--", path], timeout=8)
-        except Exception as exc:
-            return "Unavailable", str(exc)
-        output = (result.stdout or result.stderr or "").strip()
-        if result.returncode != 0 or not output:
-            return "Unavailable", output or "Could not read current file context."
-        context = output.split(None, 1)[0]
-        return context, ""
-
-    @staticmethod
-    def _expected_context(path):
-        matchpathcon = shutil.which("matchpathcon")
-        if not matchpathcon:
-            return "Unavailable", "matchpathcon is not installed."
-        try:
-            result = _run([matchpathcon, "-n", path], timeout=8)
-        except Exception as exc:
-            return "Unavailable", str(exc)
-        output = (result.stdout or result.stderr or "").strip()
-        if result.returncode != 0 or not output:
-            return "Unavailable", output or "No expected policy context was returned."
-        return output.splitlines()[0].strip(), ""
-
-    def check_path(self):
-        raw = self.path_entry.text().strip()
-        if not raw:
-            QMessageBox.information(self, "File Context Check", "Choose or enter a file or directory first.")
-            return
-        path = os.path.abspath(os.path.expanduser(raw))
-        if not os.path.lexists(path):
-            QMessageBox.warning(self, "File Context Check", "The selected path does not exist.")
-            return
-        self.path_entry.setText(path)
-
-        actual, actual_error = self._actual_context(path)
-        expected, expected_error = self._expected_context(path)
-        if actual != "Unavailable" and expected != "Unavailable":
-            match = actual == expected
-            result_text = "Matches policy" if match else "Differs from policy expectation"
-        else:
-            match = None
-            result_text = "Comparison unavailable"
-
-        record = {
-            "path": path,
-            "actual_context": actual,
-            "expected_context": expected,
-            "result": result_text,
-        }
-        self.records = [record]
-
-        lines = [
-            f"Path: {path}",
-            f"Actual Context: {actual}",
-            f"Expected Context: {expected}",
-            f"Result: {result_text}",
-        ]
-        if actual_error:
-            lines.extend(["", f"Actual Context Note: {actual_error}"])
-        if expected_error:
-            lines.extend(["", f"Expected Context Note: {expected_error}"])
-        lines.extend(["", "Read-only inspection: no file labels were changed."])
-        self.info_text.setPlainText("\n".join(lines))
-        self.export_btn.setEnabled(True)
-        if match is True:
-            self.status_lbl.setText("The current file context matches the policy expectation.")
-        elif match is False:
-            self.status_lbl.setText("The current file context differs from the policy expectation.")
-        else:
-            self.status_lbl.setText("File context checked, but a complete comparison was unavailable.")
-
-    def export_result(self):
-        if not self.records:
-            QMessageBox.information(self, "Export", "No file-context check has been performed yet.")
-            return
-        path = export_records_dialog(
-            self,
-            "SELinux File Context Check",
-            self.records,
-            columns=[
-                ("path", "Path"),
-                ("actual_context", "Actual Context"),
-                ("expected_context", "Expected Context"),
-                ("result", "Result"),
-            ],
-        )
-        if path is not None:
-            self.status_lbl.setText(f"Exported file-context check to {path}")
-
-
-class SELinuxFileContextDialogPage(QWidget):
-    """File Context Check surface embedded in the ordinary Status dialog."""
-
-    def __init__(self, metadata_font="", initial_records=None, record_callback=None, parent=None):
-        super().__init__(parent)
-        self.records = list(initial_records or [])
-        self._record_callback = record_callback
-
-        root = QVBoxLayout(self)
-        root.setContentsMargins(12, 12, 12, 12)
-        root.setSpacing(10)
-
-        note = QLabel(
-            "Compare a file or directory's current SELinux context with the context expected by the active policy. "
-            "This check is read-only; LinSpectacles never runs chcon or restorecon."
-        )
-        note.setWordWrap(True)
-        root.addWidget(note)
-
-        chooser = QHBoxLayout()
-        self.path_entry = QLineEdit()
-        self.path_entry.setPlaceholderText("Choose a file or directory to inspect...")
-        self.path_entry.returnPressed.connect(self.check_path)
-        chooser.addWidget(self.path_entry, 1)
-
-        file_btn = QPushButton("Choose File...")
-        file_btn.clicked.connect(self.choose_file)
-        chooser.addWidget(file_btn)
-
-        folder_btn = QPushButton("Choose Folder...")
-        folder_btn.clicked.connect(self.choose_folder)
-        chooser.addWidget(folder_btn)
-
-        check_btn = QPushButton("Check")
-        check_btn.clicked.connect(self.check_path)
-        chooser.addWidget(check_btn)
-        root.addLayout(chooser)
-
-        self.canvas = QTextEdit()
-        self.canvas.setReadOnly(True)
-        self.canvas.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
-        chosen_font = apply_metadata_font(self.canvas, metadata_font)
-        self.canvas.setStyleSheet(
-            "QTextEdit { "
-            f"{metadata_font_qss(chosen_font)} "
-            "background-color: #151719; color: #dcdcdc; "
-            "border: 1px solid #333333; "
-            "}"
-        )
-        root.addWidget(self.canvas, 1)
-
-        if self.records:
-            self._render_record(self.records[-1])
-        else:
-            self._render_message("No path has been checked yet.")
-
-    def _formats(self):
-        key_format = QTextCharFormat()
-        key_format.setForeground(QColor("#9cdcfe"))
-        key_format.setFontWeight(600)
-        value_format = QTextCharFormat()
-        value_format.setForeground(QColor("#dcdcdc"))
-        return key_format, value_format
-
-    def _render_message(self, message):
-        self.canvas.clear()
-        _key, value_format = self._formats()
-        cursor = self.canvas.textCursor()
-        cursor.insertText(str(message) + "\n", value_format)
-        self.canvas.setTextCursor(cursor)
-        self.canvas.moveCursor(QTextCursor.MoveOperation.Start)
-        self.canvas.verticalScrollBar().setValue(0)
-
-    def _render_record(self, record):
-        self.canvas.clear()
-        key_format, value_format = self._formats()
-        cursor = self.canvas.textCursor()
-        fields = [
-            ("Path", record.get("path", "")),
-            ("Actual Context", record.get("actual_context", "")),
-            ("Expected Context", record.get("expected_context", "")),
-            ("Result", record.get("result", "")),
-        ]
-        if record.get("actual_note"):
-            fields.append(("Actual Context Note", record.get("actual_note", "")))
-        if record.get("expected_note"):
-            fields.append(("Expected Context Note", record.get("expected_note", "")))
-        fields.append(("Inspection", "Read-only; no file labels were changed."))
-        for label, value in fields:
-            cursor.insertText(f"{label}: ", key_format)
-            cursor.insertText(f"{value}\n", value_format)
-        self.canvas.setTextCursor(cursor)
-        self.canvas.moveCursor(QTextCursor.MoveOperation.Start)
-        self.canvas.verticalScrollBar().setValue(0)
-
-    def choose_file(self):
-        path, _selected = QFileDialog.getOpenFileName(self, "Choose File for SELinux Context Check")
-        if path:
-            self.path_entry.setText(path)
-            self.check_path()
-
-    def choose_folder(self):
-        path = QFileDialog.getExistingDirectory(self, "Choose Directory for SELinux Context Check")
-        if path:
-            self.path_entry.setText(path)
-            self.check_path()
-
-    def check_path(self):
-        raw = self.path_entry.text().strip()
-        if not raw:
-            QMessageBox.information(self, "File Context Check", "Choose or enter a file or directory first.")
-            return
-        path = os.path.abspath(os.path.expanduser(raw))
-        if not os.path.lexists(path):
-            QMessageBox.warning(self, "File Context Check", "The selected path does not exist.")
-            return
-        self.path_entry.setText(path)
-
-        actual, actual_error = SELinuxFileContextPage._actual_context(path)
-        expected, expected_error = SELinuxFileContextPage._expected_context(path)
-        if actual != "Unavailable" and expected != "Unavailable":
-            result_text = "Matches policy" if actual == expected else "Differs from policy expectation"
-        else:
-            result_text = "Comparison unavailable"
-
-        record = {
-            "path": path,
-            "actual_context": actual,
-            "expected_context": expected,
-            "result": result_text,
-            "actual_note": actual_error,
-            "expected_note": expected_error,
-        }
-        self.records = [record]
-        self._render_record(record)
-        if callable(self._record_callback):
-            self._record_callback(list(self.records))
-
-
 class SELinuxStatusDialog(QDialog):
-    """Status + File Context Check using the Systemd Unit Details dialog structure."""
+    """Status using the existing SELinux Status dialog presentation."""
 
     def __init__(self, owner, parent=None):
         super().__init__(parent or owner)
@@ -982,9 +666,6 @@ class SELinuxStatusDialog(QDialog):
         )
         note.setWordWrap(True)
         root.addWidget(note)
-
-        tabs = QTabWidget()
-        root.addWidget(tabs, 1)
 
         status_page = SELinuxStatusPage()
         records = list(status_page.records)
@@ -1020,14 +701,7 @@ class SELinuxStatusDialog(QDialog):
         canvas.moveCursor(QTextCursor.MoveOperation.Start)
         canvas.verticalScrollBar().setValue(0)
         page_layout.addWidget(canvas, 1)
-        tabs.addTab(page, "Status")
-
-        file_page = SELinuxFileContextDialogPage(
-            metadata_font,
-            initial_records=owner._file_context_records,
-            record_callback=owner._set_file_context_records,
-        )
-        tabs.addTab(file_page, "File Context Check")
+        root.addWidget(page, 1)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self.reject)
@@ -1303,7 +977,6 @@ class SELinuxInspectorWidget(QWidget):
         self._host_column_callback = None
         self._hidden_columns = set()
         self._serialized_metadata_font = ""
-        self._file_context_records = []
         self._shutting_down = False
         self._priv_dialog = None
         self.privilege = PrivilegeClient()
@@ -1448,13 +1121,9 @@ class SELinuxInspectorWidget(QWidget):
     def toggle_metadata_panel(self):
         self.set_metadata_panel_visible(not self.metadata_panel_visible, persist=True)
 
-    def _set_file_context_records(self, records):
-        self._file_context_records = list(records or [])
-
     def export_view_specs(self):
         return [
             ("status", "Status"),
-            ("file_context_check", "File Context Check"),
             ("booleans", "Booleans"),
             ("processes", "Process Contexts"),
             ("denials", "Recent Denials"),
@@ -1516,21 +1185,8 @@ class SELinuxInspectorWidget(QWidget):
                 [("property", "Property"), ("value", "Value")],
             )
 
-        if "file_context_check" in selected:
-            self._append_export_view(
-                flat_records,
-                "File Context Check",
-                self._file_context_records,
-                [
-                    ("path", "Path"),
-                    ("actual_context", "Actual Context"),
-                    ("expected_context", "Expected Context"),
-                    ("result", "Result"),
-                ],
-            )
-
         for key, label in self.export_view_specs():
-            if key not in selected or key in {"status", "file_context_check"}:
+            if key not in selected or key == "status":
                 continue
             view_label, page = by_key[key]
             self._append_export_view(flat_records, view_label, page.modules_data, page.columns)
